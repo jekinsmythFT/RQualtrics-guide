@@ -7,13 +7,9 @@ output: html_document
 library(readr)
 library(dplyr)
 ds <- read_csv("ds.csv") %>% 
-  mutate(date = as.Date(RecordedDate, format = "%d/%m/%Y"), 
-         nps = if_else(Q13 <=6, -100,
-                       if_else(Q13 >=9, 100, 0)),
-         miss_most = Q14,
-         ma =  Q6_1, esg = Q6_2, trade = Q6_3, climate = Q6_4, energy = Q6_5, tech_asia = Q6_6, sport = Q6_7,
-         new_subj = Q7) %>% 
-  select(date, nps, miss_most, ma, esg, trade, climate, energy, tech_asia, sport, new_subj) 
+  mutate(date = as.Date(date, format = "%d/%m/%Y"), 
+         nps = if_else(nps <=6, -100,
+                       if_else(nps >=9, 100, 0))) 
 ```
 
 ```{r}
@@ -21,8 +17,14 @@ library(lubridate)
 ds %>% 
   mutate(month = floor_date(date, "month")) %>% 
   group_by(month) %>% 
-  summarise(nps = mean(nps, na.rm = T),
+  summarise(nps = mean(nps_g, na.rm = T),
             n = n())
+
+ds %>% 
+  group_by(product) %>% 
+  summarise(n = n(),
+            nps = mean(nps_g, na.rm = T)) %>% 
+  arrange(-n)
 ```
 
 ```{r}
@@ -31,7 +33,10 @@ library(tidyr)
 library(ggrepel)
 library(tm)
 
+miss_most_text <- 
+  
 ds %>% 
+  select(miss_most, nps) %>%
   drop_na() %>% 
   unnest_tokens(word, miss_most) %>% 
   anti_join(stop_words) %>% 
@@ -40,48 +45,43 @@ ds %>%
   summarise(n = n(), 
             nps = mean(nps)) %>% 
   arrange(-n) %>% 
-  filter(!word %in% c("ft")) %>% 
-  filter(n >= 20) %>% 
+  filter(!word %in% c("ft", "news") 
+         & n >= 20) 
+
+miss_most_text
+
+  
+miss_most_text %>% 
   ggplot(aes(n, nps, label = word)) +
   geom_text_repel() +
   scale_x_log10() +
   theme_minimal() +
   labs(x = "\nNumber of susbcribers who mention this",
        y = "NPS\n")
+
+
+broadness = c("write|sourc|balanc|object|opinion|qualiti|global|world|inform|journal|colunmist|insight|analysi|perspect")
+
+
+specificness = c("uk|financ|data|econom|financi|market|busi|art|section|comment|polit")
+
 ```
 
 
 ```{r}
 library(stringr)
-ds %>% 
-  select(ma, esg, climate, energy, tech_asia, sport) %>% 
+specifc_broad <- ds %>% 
   drop_na() %>% 
-  mutate(across(everything(), ~ na_if(., "I'm not interested in this content"))) %>% 
-  mutate(across(everything(), ~ as.numeric(factor(., levels = c("Not very useful", 
-                                                     "Slightly useful", 
-                                                     "Moderately useful", 
-                                                     "Very useful", 
-                                                     "Extremely useful"))))) %>% 
-  cor(method = "kendall", use = "complete.obs")
-```
+  mutate(miss_most = stemDocument(miss_most),
+         is.broadness = str_detect(miss_most, broadness),
+         is.specificness = str_detect(miss_most, specificness)) 
+  
+specifc_broad %>% 
+  group_by(is.broadness, is.specificness) %>% 
+  summarise(nps = mean(nps),
+            n())
 
-```{r}
-ds %>% 
-  select(ma, esg, climate, energy, tech_asia, sport, new_subj) %>% 
-  drop_na() %>% 
-  pivot_longer(1:6) %>% 
-  filter(value %in% c("Very useful", "Extremely useful")) %>% 
-  unnest_tokens("word", new_subj) %>% 
-  anti_join(stop_words) %>% 
-  mutate(word = stemDocument(word)) %>% 
-  group_by(name, word) %>% 
-  summarise(n = n()) %>% 
-  arrange(-n) %>% 
-  group_by(name) %>% 
-  filter(!word %in% c("coverag", "ft", "news", "analysi")) %>% 
-  top_n(5, wt = n) %>% 
-  ggplot(aes(reorder(word, - n), n)) +
-  geom_col() +
-  facet_wrap(~name, scales = "free") +
-  coord_flip()
+
+
+
 ```
